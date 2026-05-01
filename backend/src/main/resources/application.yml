@@ -1,0 +1,21 @@
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/tickets}
+    username: ${SPRING_DATASOURCE_USERNAME:tickets}
+    password: ${SPRING_DATASOURCE_PASSWORD:tickets}
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        format_sql: true
+  data:
+    mongodb:
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb://localhost:27017/tickets_ai}
+    redis:
+      host: ${REDIS_HOST:localhost}
+server:
+  port: 8080
+app:
+  jwt-secret: ${JWT_SECRET:dev-secret-change-me-dev-secret-change-me}
+  ai-provider: ${AI_PROVIDER:mock}
