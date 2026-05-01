@@ -1,23 +1,75 @@
-import React, {useEffect, useState} from 'react';
-import {createRoot} from 'react-dom/client';
-import {api, setToken} from './api/client';
-import {Ticket, Analytics} from './types';
+import React, { useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { AppShell, PageId } from './components/AppShell';
+import { useAnalytics } from './hooks/useAnalytics';
+import { useAuth } from './hooks/useAuth';
+import { useTickets } from './hooks/useTickets';
+import { AdminRoutingPage, AnalyticsPage, DashboardPage, TicketDetailPage, TicketsPage } from './pages';
+import type { Ticket } from './types';
 import './style.css';
 
-function App(){
-  const [tickets,setTickets]=useState<Ticket[]>([]); const [analytics,setAnalytics]=useState<Analytics|null>(null);
-  const [q,setQ]=useState(''); const [title,setTitle]=useState(''); const [description,setDescription]=useState('');
-  async function load(){ const t=await api.listTickets(q); setTickets(t.content||[]); setAnalytics(await api.analytics()); }
-  useEffect(()=>{ api.demoToken().then(r=>{setToken(r.token); load();}); },[]);
-  async function create(){ await api.createTicket({title,description,customerEmail:'customer@example.com',customerTier:'enterprise'}); setTitle(''); setDescription(''); await load(); }
-  async function summarize(id:number){ await api.summarize(id); await load(); }
-  return <main>
-    <header><h1>AI Support Ticket Intelligence</h1><p>React SPA + Spring REST + PostgreSQL + MongoDB + async AI pipeline</p></header>
-    <section className="grid">
-      <div className="card"><h2>Analytics</h2><p>Total: {analytics?.totalTickets ?? 0}</p><p>SLA Risk: {analytics?.slaRiskTickets ?? 0}</p><pre>{JSON.stringify(analytics?.byPriority ?? {}, null, 2)}</pre></div>
-      <div className="card"><h2>Create Ticket</h2><input placeholder="Title" value={title} onChange={e=>setTitle(e.target.value)}/><textarea placeholder="Description" value={description} onChange={e=>setDescription(e.target.value)}/><button onClick={create}>Create</button></div>
-    </section>
-    <section className="card"><h2>Tickets</h2><div className="row"><input placeholder="Search" value={q} onChange={e=>setQ(e.target.value)}/><button onClick={load}>Search</button></div>{tickets.map(t=><article className="ticket" key={t.id}><h3>#{t.id} {t.title}</h3><p>{t.description}</p><div className="badges"><span>{t.status}</span><span>{t.priority}</span><span>{t.category}</span>{t.slaRisk && <b>SLA RISK</b>}</div><p>Assigned: {t.assignee || 'Pending AI routing'}</p><button onClick={()=>summarize(t.id)}>Re-run AI</button></article>)}</section>
-  </main>
+function App() {
+  const [page, setPage] = useState<PageId>('dashboard');
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const { role, ready, error: authError, loginAs } = useAuth('ADMIN');
+  const ticketsState = useTickets(ready);
+  const analyticsState = useAnalytics(ready);
+
+  async function refreshAll() {
+    await Promise.all([ticketsState.loadTickets(), analyticsState.loadAnalytics()]);
+  }
+
+  async function createTicket(input: { title: string; description: string; customerEmail: string; customerTier: string }) {
+    await ticketsState.createTicket(input);
+    await refreshAll();
+  }
+
+  async function summarizeTicket(id: number) {
+    await ticketsState.summarizeTicket(id);
+    await refreshAll();
+  }
+
+  function openTicket(ticket: Ticket) {
+    setSelectedTicket(ticket);
+    setPage('tickets');
+  }
+
+  const activePage = selectedTicket ? 'ticket-detail' : page;
+
+  return (
+    <AppShell page={page} onPageChange={(next) => { setSelectedTicket(null); setPage(next); }} role={role} onRoleChange={loginAs}>
+      {authError && <div className="error">{authError}</div>}
+      {ticketsState.error && <div className="error">{ticketsState.error}</div>}
+      {analyticsState.error && <div className="error">{analyticsState.error}</div>}
+      {activePage === 'dashboard' && (
+        <DashboardPage
+          analytics={analyticsState.analytics}
+          tickets={ticketsState.tickets}
+          onCreate={createTicket}
+          onSummarize={summarizeTicket}
+          onOpenTicket={openTicket}
+        />
+      )}
+      {activePage === 'tickets' && (
+        <TicketsPage
+          tickets={ticketsState.tickets}
+          filters={ticketsState.filters}
+          onFiltersChange={ticketsState.setFilters}
+          onSearch={ticketsState.loadTickets}
+          onSummarize={summarizeTicket}
+          onOpenTicket={openTicket}
+          loading={ticketsState.loading}
+        />
+      )}
+      {activePage === 'ticket-detail' && <TicketDetailPage ticket={selectedTicket} onBack={() => setSelectedTicket(null)} onSummarize={summarizeTicket} />}
+      {activePage === 'analytics' && <AnalyticsPage analytics={analyticsState.analytics} />}
+      {activePage === 'admin' && <AdminRoutingPage role={role} />}
+    </AppShell>
+  );
 }
-createRoot(document.getElementById('root')!).render(<App/>);
+
+createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
